@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import br.edu.ffb.pedro.bullyelectionp2p.callback.OnWifiRestarted;
+import br.edu.ffb.pedro.bullyelectionp2p.event.BullyElectionEvent;
 import br.edu.ffb.pedro.bullyelectionp2p.event.ClientEvent;
 import br.edu.ffb.pedro.bullyelectionp2p.event.ServerEvent;
 import br.edu.ffb.pedro.bullyelectionp2p.event.WifiP2pEvent;
@@ -44,6 +45,7 @@ import br.edu.ffb.pedro.bullyelectionp2p.payload.device.DeviceInfo;
 
 @SuppressWarnings("WeakerAccess")
 public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
+
     public static final String TAG = "BullyElectionP2p";
     private static final int SERVER_PORT = 37500;
     private static final int SERVICE_PORT = 50489;
@@ -129,7 +131,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
             @Override
             public void onSuccess() {
                 // Configura as informações do serviço
-                WifiP2pDnsSdServiceInfo serviceInfo =
+                serviceInfo =
                         WifiP2pDnsSdServiceInfo.newInstance(thisDevice.readableName,
                                 SERVICE_TYPE, thisDevice.getTxtRecord());
 
@@ -240,6 +242,8 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
 
                                 // Se a variável não for alterada, significa que não houve resposta
                                 if (!BullyElection.hasElectionResponse) {
+                                    Log.d(BullyElectionP2p.TAG, "Não houve resposta do dispositivo " +
+                                            "de maior id, o dispositivo atual irá se declarar líder");
                                     informLeader();
                                 }
                             } catch (InterruptedException e) {
@@ -262,6 +266,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
                                 Thread.sleep(BullyElection.TIMEOUT / 2);
                                 // Se o dispositivo era o líder, será iniciada uma nova eleição
                                 if (device.isLeader) {
+                                    Log.d(BullyElectionP2p.TAG, "Líder desconectado, iniciando uma nova eleição");
                                     registeredLeader = null;
                                     startElection();
                                 }
@@ -306,12 +311,14 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
         if (serverSocket == null || serverSocket.isClosed()) {
             try {
                 serverSocket = new ServerSocket(SERVER_PORT, MAX_SERVER_CONNECTIONS);
+                serverSocket.setReuseAddress(true);
                 serverSocket.setReceiveBufferSize(BUFFER_SIZE);
             } catch (IOException ex) {
                 Log.e(TAG, "Server: Falha ao usar a porta padrão, outra será usada em vez disso");
 
                 try {
                     serverSocket = new ServerSocket(0, MAX_SERVER_CONNECTIONS);
+                    serverSocket.setReuseAddress(true);
                     serverSocket.setReceiveBufferSize(BUFFER_SIZE);
                     thisDevice.serverPort = serverSocket.getLocalPort();
                 } catch (IOException ioEx) {
@@ -327,12 +334,14 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
         if (listenerServiceSocket == null || listenerServiceSocket.isClosed()) {
             try {
                 listenerServiceSocket = new ServerSocket(thisDevice.servicePort, MAX_SERVER_CONNECTIONS);
+                listenerServiceSocket.setReuseAddress(true);
                 listenerServiceSocket.setReceiveBufferSize(BUFFER_SIZE);
             } catch (IOException ex) {
                 Log.e(TAG, "Listener Service: Falha ao usar porta padrão, outra será usada em vez disso.");
 
                 try {
                     listenerServiceSocket = new ServerSocket(0, MAX_SERVER_CONNECTIONS);
+                    listenerServiceSocket.setReuseAddress(true);
                     listenerServiceSocket.setReceiveBufferSize(BUFFER_SIZE);
                     thisDevice.servicePort = listenerServiceSocket.getLocalPort();
                 } catch (IOException ioEx) {
@@ -535,7 +544,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
     }
 
     private void sendData(BullyElectionP2pDevice device, Object data) {
-        BackgroundDataSendJob sendDataToDevice = new BackgroundDataSendJob(device, data);
+        BackgroundDataSendJob sendDataToDevice = new BackgroundDataSendJob(device, this, data);
         AsyncJob.doInBackground(sendDataToDevice);
     }
 
@@ -563,7 +572,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
 
                     @Override
                     public void onSuccess() {
-                        Log.v(TAG, "Serviço encerrado com sucesso.");
+                        Log.d(TAG, "Serviço encerrado com sucesso.");
                         if (disableWiFi) {
                             disableWiFi(context); //Called here to give time for request to be disposed.
                         }
@@ -663,7 +672,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
                         @Override
                         public void onSuccess() {
                             isConnectedToAnotherDevice = false;
-                            //deletePersistentGroup(group);
+                            deletePersistentGroup(group);
                             Log.d(TAG, "WiFi Direct Group Removido");
                         }
 
@@ -810,8 +819,14 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
     }
 
     public void informLeader() {
+        // O EventBus informa ao dispositivo atual, para caso tenha sido registrado esse evento
+        EventBus.getDefault().post(new BullyElectionEvent(BullyElectionEvent.ELECTED_LEADER, thisDevice));
+
+        // Envia para todos os clientes registrados rede local menos o dispositivo atual
         BullyElection bullyElection = new BullyElection(BullyElection.INFORM_LEADER, thisDevice);
         sendToAllDevices(bullyElection);
+
+        // Envia para o Host
         sendToHost(bullyElection);
     }
 
@@ -861,7 +876,7 @@ public class BullyElectionP2p implements WifiP2pManager.ConnectionInfoListener {
     }
 
     private void sendDataSync(ExecutorService executorService, BullyElectionP2pDevice device, Object data) {
-        BackgroundDataSendJob sendDataToDevice = new BackgroundDataSendJob(device, data);
+        BackgroundDataSendJob sendDataToDevice = new BackgroundDataSendJob(device, this, data);
         AsyncJob.doInBackground(sendDataToDevice, executorService);
     }
 

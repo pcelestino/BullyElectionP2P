@@ -23,10 +23,12 @@ public class BackgroundDataSendJob implements AsyncJob.OnBackgroundJob {
     private final int BUFFER_SIZE = 65536;
     private Object data;
     private BullyElectionP2pDevice device;
+    private BullyElectionP2p bullyElectionInstance;
 
-    public BackgroundDataSendJob(BullyElectionP2pDevice device, Object data) {
+    public BackgroundDataSendJob(BullyElectionP2pDevice device, BullyElectionP2p bullyElectionInstance, Object data) {
         this.data = data;
         this.device = device;
+        this.bullyElectionInstance = bullyElectionInstance;
     }
 
     @Override
@@ -52,20 +54,23 @@ public class BackgroundDataSendJob implements AsyncJob.OnBackgroundJob {
                 dataStreamToOtherDevice.close();
 
                 Log.d(BullyElectionP2p.TAG, "Dados enviados com êxito.");
-                EventBus.getDefault().post(new DataTransferEvent(DataTransferEvent.SENT));
+                if (!(data instanceof BullyElection))
+                    EventBus.getDefault().post(new DataTransferEvent(DataTransferEvent.SENT));
 
             } catch (SocketTimeoutException e) {
-                Log.d(BullyElectionP2p.TAG, "A conexxão atingiu o tempo limite: " + device.toString());
+                Log.e(BullyElectionP2p.TAG, "A conexxão atingiu o tempo limite: " + device.toString(), e);
                 EventBus.getDefault().post(new WifiP2pEvent(WifiP2pEvent.TIMEOUT, device));
             } catch (Exception ex) {
-                Log.d(BullyElectionP2p.TAG, "Ocorreu um erro ao enviar dados para um dispositivo.");
+                Log.e(BullyElectionP2p.TAG, "Ocorreu um erro ao enviar dados para um dispositivo.", ex);
                 EventBus.getDefault().post(new DataTransferEvent(DataTransferEvent.FAILURE));
-                ex.printStackTrace();
+                if (device.isLeader) {
+                    bullyElectionInstance.startElection();
+                }
             } finally {
                 try {
                     dataSocket.close();
                 } catch (Exception ex) {
-                    Log.e(BullyElectionP2p.TAG, "Falha ao fechar o socket de dados.");
+                    Log.e(BullyElectionP2p.TAG, "Falha ao fechar o socket de dados.", ex);
                 }
             }
         } else {

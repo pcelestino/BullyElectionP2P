@@ -76,6 +76,10 @@ public class BackgroundServerRegistrationJob implements AsyncJob.OnBackgroundJob
                     if (registered.serviceAddress.equals(clientDevice.serviceAddress)) {
                         it.remove();
 
+                        if (bullyElectionP2pInstance.registeredLeader
+                                .serviceAddress.equals(clientDevice.serviceAddress)) {
+                            bullyElectionP2pInstance.registeredLeader = null;
+                        }
                         DeviceInfo reportDeviceRemoval = new DeviceInfo();
                         reportDeviceRemoval.message = DeviceInfo.REMOVE_DEVICE;
                         reportDeviceRemoval.device = registered;
